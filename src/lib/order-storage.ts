@@ -1,5 +1,6 @@
 import { CartItem } from './cart-storage';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { db } from './firebase';
+import { collection, doc, setDoc, getDoc, getDocs, query, where, orderBy as firestoreOrderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export interface Order {
   id: string;
@@ -28,165 +29,133 @@ export interface Order {
 const ORDER_STORAGE_KEY = 'wire_cable_orders';
 
 export const getOrders = async (userId?: string): Promise<Order[]> => {
-  if (typeof window === 'undefined') return [];
-  const stored = localStorage.getItem(ORDER_STORAGE_KEY);
-  const all: Order[] = stored ? JSON.parse(stored) : [];
-
   if (!userId) {
-    return all;
-  }
-
-  if (!isSupabaseConfigured) {
-    return all.filter((o) => o.userId === userId);
-  }
-
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching orders:', error);
     return [];
   }
 
-  return (data || []).map(order => ({
-    id: order.id,
-    orderNumber: order.order_number,
-    userId: order.user_id,
-    customerInfo: {
-      name: order.customer_name,
-      email: order.customer_email,
-      phone: order.customer_phone,
-      address: order.customer_address,
-      pincode: order.customer_pincode,
-    },
-    items: order.items,
-    subtotal: Number(order.subtotal),
-    shippingCost: Number(order.shipping_cost),
-    totalAmount: Number(order.total_amount),
-    status: order.status as Order['status'],
-    paymentStatus: order.payment_status as Order['paymentStatus'],
-    paymentMethod: order.payment_method as Order['paymentMethod'],
-    qrCodeData: order.qr_code_data || undefined,
-    transactionId: order.transaction_id || undefined,
-    createdAt: order.created_at,
-    estimatedDelivery: order.estimated_delivery || undefined,
-  }));
+  try {
+    const ordersRef = collection(db, 'orders');
+    const q = query(
+      ordersRef,
+      where('userId', '==', userId),
+      firestoreOrderBy('createdAt', 'desc')
+    );
+
+    const querySnapshot = await getDocs(q);
+    const orders: Order[] = [];
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      orders.push({
+        id: doc.id,
+        orderNumber: data.orderNumber,
+        userId: data.userId,
+        customerInfo: data.customerInfo,
+        items: data.items,
+        subtotal: Number(data.subtotal),
+        shippingCost: Number(data.shippingCost),
+        totalAmount: Number(data.totalAmount),
+        status: data.status,
+        paymentStatus: data.paymentStatus,
+        paymentMethod: data.paymentMethod,
+        qrCodeData: data.qrCodeData,
+        transactionId: data.transactionId,
+        createdAt: data.createdAt,
+        estimatedDelivery: data.estimatedDelivery,
+      });
+    });
+
+    return orders;
+  } catch (error) {
+    console.error('Error fetching orders:', error);
+    return [];
+  }
 };
 
 export const saveOrder = async (order: Order): Promise<void> => {
-  if (!isSupabaseConfigured || !order.userId) {
-    if (typeof window === 'undefined') return;
-    const orders = await getOrders();
-    orders.unshift(order);
-    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(orders));
-    return;
+  if (!order.userId) {
+    throw new Error('User ID is required to save order');
   }
 
-  const { error } = await supabase
-    .from('orders')
-    .insert({
-      id: order.id,
-      user_id: order.userId,
-      order_number: order.orderNumber,
-      customer_name: order.customerInfo.name,
-      customer_email: order.customerInfo.email,
-      customer_phone: order.customerInfo.phone,
-      customer_address: order.customerInfo.address,
-      customer_pincode: order.customerInfo.pincode,
+  try {
+    const orderRef = doc(db, 'orders', order.id);
+    await setDoc(orderRef, {
+      orderNumber: order.orderNumber,
+      userId: order.userId,
+      customerInfo: order.customerInfo,
       items: order.items,
       subtotal: order.subtotal,
-      shipping_cost: order.shippingCost,
-      total_amount: order.totalAmount,
+      shippingCost: order.shippingCost,
+      totalAmount: order.totalAmount,
       status: order.status,
-      payment_status: order.paymentStatus,
-      payment_method: order.paymentMethod,
-      qr_code_data: order.qrCodeData,
-      transaction_id: order.transactionId,
-      estimated_delivery: order.estimatedDelivery,
+      paymentStatus: order.paymentStatus,
+      paymentMethod: order.paymentMethod,
+      qrCodeData: order.qrCodeData,
+      transactionId: order.transactionId,
+      estimatedDelivery: order.estimatedDelivery,
+      createdAt: order.createdAt,
+      updatedAt: serverTimestamp()
     });
-
-  if (error) {
+  } catch (error) {
     console.error('Error saving order:', error);
     throw new Error('Failed to save order');
   }
 };
 
 export const updateOrderStatus = async (orderId: string, status: Order['status'], paymentStatus?: Order['paymentStatus'], userId?: string): Promise<void> => {
-  if (!userId || !isSupabaseConfigured) {
-    const orders = await getOrders();
-    const index = orders.findIndex(o => o.id === orderId);
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    const updateData: any = {
+      status,
+      updatedAt: serverTimestamp()
+    };
 
-    if (index >= 0) {
-      orders[index].status = status;
-      if (paymentStatus) {
-        orders[index].paymentStatus = paymentStatus;
-      }
-      localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(orders));
+    if (paymentStatus) {
+      updateData.paymentStatus = paymentStatus;
     }
-    return;
-  }
 
-  const updateData: any = { status, updated_at: new Date().toISOString() };
-  if (paymentStatus) {
-    updateData.payment_status = paymentStatus;
-  }
-
-  const { error } = await supabase
-    .from('orders')
-    .update(updateData)
-    .eq('id', orderId)
-    .eq('user_id', userId);
-
-  if (error) {
+    await updateDoc(orderRef, updateData);
+  } catch (error) {
     console.error('Error updating order status:', error);
     throw new Error('Failed to update order status');
   }
 };
 
 export const getOrderById = async (orderId: string, userId?: string): Promise<Order | undefined> => {
-  if (!userId || !isSupabaseConfigured) {
-    const orders = await getOrders();
-    return orders.find(o => o.id === orderId);
-  }
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    const orderSnap = await getDoc(orderRef);
 
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*')
-    .eq('id', orderId)
-    .eq('user_id', userId)
-    .maybeSingle();
+    if (!orderSnap.exists()) {
+      return undefined;
+    }
 
-  if (error || !data) {
+    const data = orderSnap.data();
+    if (userId && data.userId !== userId) {
+      return undefined;
+    }
+
+    return {
+      id: orderSnap.id,
+      orderNumber: data.orderNumber,
+      userId: data.userId,
+      customerInfo: data.customerInfo,
+      items: data.items,
+      subtotal: Number(data.subtotal),
+      shippingCost: Number(data.shippingCost),
+      totalAmount: Number(data.totalAmount),
+      status: data.status,
+      paymentStatus: data.paymentStatus,
+      paymentMethod: data.paymentMethod,
+      qrCodeData: data.qrCodeData,
+      transactionId: data.transactionId,
+      createdAt: data.createdAt,
+      estimatedDelivery: data.estimatedDelivery,
+    };
+  } catch (error) {
     console.error('Error fetching order:', error);
     return undefined;
   }
-
-  return {
-    id: data.id,
-    orderNumber: data.order_number,
-    userId: data.user_id,
-    customerInfo: {
-      name: data.customer_name,
-      email: data.customer_email,
-      phone: data.customer_phone,
-      address: data.customer_address,
-      pincode: data.customer_pincode,
-    },
-    items: data.items,
-    subtotal: Number(data.subtotal),
-    shippingCost: Number(data.shipping_cost),
-    totalAmount: Number(data.total_amount),
-    status: data.status as Order['status'],
-    paymentStatus: data.payment_status as Order['paymentStatus'],
-    paymentMethod: data.payment_method as Order['paymentMethod'],
-    qrCodeData: data.qr_code_data || undefined,
-    transactionId: data.transaction_id || undefined,
-    createdAt: data.created_at,
-    estimatedDelivery: data.estimated_delivery || undefined,
-  };
 };
 
 export const generateOrderNumber = (): string => {
@@ -210,43 +179,37 @@ export const calculateShippingCost = (pincode: string, subtotal: number): number
 };
 
 export const getAllOrdersForAdmin = async (): Promise<Order[]> => {
-  if (!isSupabaseConfigured) {
-    const stored = localStorage.getItem(ORDER_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  }
+  try {
+    const ordersRef = collection(db, 'orders');
+    const q = query(ordersRef, firestoreOrderBy('createdAt', 'desc'));
 
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*')
-    .order('created_at', { ascending: false });
+    const querySnapshot = await getDocs(q);
+    const orders: Order[] = [];
 
-  if (error) {
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      orders.push({
+        id: doc.id,
+        orderNumber: data.orderNumber,
+        userId: data.userId,
+        customerInfo: data.customerInfo,
+        items: data.items,
+        subtotal: Number(data.subtotal),
+        shippingCost: Number(data.shippingCost),
+        totalAmount: Number(data.totalAmount),
+        status: data.status,
+        paymentStatus: data.paymentStatus,
+        paymentMethod: data.paymentMethod,
+        qrCodeData: data.qrCodeData,
+        transactionId: data.transactionId,
+        createdAt: data.createdAt,
+        estimatedDelivery: data.estimatedDelivery,
+      });
+    });
+
+    return orders;
+  } catch (error) {
     console.error('Error fetching all orders:', error);
-    const stored = localStorage.getItem(ORDER_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    return [];
   }
-
-  return (data || []).map(order => ({
-    id: order.id,
-    orderNumber: order.order_number,
-    userId: order.user_id,
-    customerInfo: {
-      name: order.customer_name,
-      email: order.customer_email,
-      phone: order.customer_phone,
-      address: order.customer_address,
-      pincode: order.customer_pincode,
-    },
-    items: order.items,
-    subtotal: Number(order.subtotal),
-    shippingCost: Number(order.shipping_cost),
-    totalAmount: Number(order.total_amount),
-    status: order.status as Order['status'],
-    paymentStatus: order.payment_status as Order['paymentStatus'],
-    paymentMethod: order.payment_method as Order['paymentMethod'],
-    qrCodeData: order.qr_code_data || undefined,
-    transactionId: order.transaction_id || undefined,
-    createdAt: order.created_at,
-    estimatedDelivery: order.estimated_delivery || undefined,
-  }));
 };

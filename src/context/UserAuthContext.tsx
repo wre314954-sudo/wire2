@@ -1,6 +1,8 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { auth, db } from "@/lib/firebase";
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 const USER_AUTH_STORAGE_KEY = "wirebazaar-user";
 
@@ -124,49 +126,28 @@ export const UserAuthProvider = ({ children }: { children: ReactNode }) => {
 
       let userId: string;
 
-      if (isSupabaseConfigured) {
-        try {
-          const { data: sessionRes } = await supabase.auth.getSession();
-          if (!sessionRes?.session) {
-            await supabase.auth.signInAnonymously();
-          }
-        } catch (e) {
-          console.error('Anonymous auth failed', e);
-        }
+      try {
+        const userCredential = await signInAnonymously(auth);
+        userId = userCredential.user.uid;
 
-        const { data: authRes } = await supabase.auth.getUser();
-        const authUserId = authRes?.user?.id;
+        const userRef = doc(db, 'users', userId);
+        const userSnap = await getDoc(userRef);
 
-        if (!authUserId) {
-          throw new Error('Authentication session could not be established.');
-        }
-
-        const { data: existingUser } = await supabase
-          .from('users')
-          .select('id, contact, last_login_at')
-          .eq('id', authUserId)
-          .maybeSingle();
-
-        if (existingUser) {
-          userId = existingUser.id;
-          await supabase
-            .from('users')
-            .update({ last_login_at: new Date().toISOString(), contact: trimmedContact })
-            .eq('id', userId);
+        if (userSnap.exists()) {
+          await setDoc(userRef, {
+            contact: trimmedContact,
+            lastLoginAt: serverTimestamp()
+          }, { merge: true });
         } else {
-          const { data: newUser, error } = await supabase
-            .from('users')
-            .insert({ id: authUserId, contact: trimmedContact, last_login_at: new Date().toISOString() })
-            .select('id')
-            .single();
-
-          if (error || !newUser) {
-            throw new Error("Failed to create user account. Please try again.");
-          }
-          userId = newUser.id;
+          await setDoc(userRef, {
+            contact: trimmedContact,
+            lastLoginAt: serverTimestamp(),
+            createdAt: serverTimestamp()
+          });
         }
-      } else {
-        userId = `local_${Date.now()}`;
+      } catch (e) {
+        console.error('Firebase auth failed', e);
+        throw new Error('Authentication failed. Please try again.');
       }
 
       const profile: UserProfile = {
@@ -189,9 +170,7 @@ export const UserAuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = useCallback(() => {
     setUser(null);
     localStorage.removeItem(USER_AUTH_STORAGE_KEY);
-    if (isSupabaseConfigured) {
-      supabase.auth.signOut().catch(() => {});
-    }
+    auth.signOut().catch(() => {});
     toast.info("You have been logged out.");
   }, []);
 

@@ -1,4 +1,6 @@
 import type { InquiryData } from "@/pages/Inquiry";
+import { db } from './firebase';
+import { collection, doc, setDoc, getDocs, query, orderBy as firestoreOrderBy, serverTimestamp } from 'firebase/firestore';
 
 export interface StoredInquiry extends InquiryData {
   id: string;
@@ -68,14 +70,41 @@ const writeStorage = (value: StoredInquiry[]) => {
   }
 };
 
-export const getStoredInquiries = (): StoredInquiry[] => readStorage();
+export const getStoredInquiries = async (): Promise<StoredInquiry[]> => {
+  try {
+    const inquiriesRef = collection(db, 'inquiries');
+    const q = query(inquiriesRef, firestoreOrderBy('createdAt', 'desc'));
+    const querySnapshot = await getDocs(q);
 
-export const addInquiryToStorage = (data: InquiryData): StoredInquiry => {
+    const inquiries: StoredInquiry[] = [];
+    querySnapshot.forEach((doc) => {
+      inquiries.push({ id: doc.id, ...doc.data() } as StoredInquiry);
+    });
+
+    return inquiries;
+  } catch (error) {
+    console.error('Error fetching inquiries from Firebase:', error);
+    return readStorage();
+  }
+};
+
+export const addInquiryToStorage = async (data: InquiryData): Promise<StoredInquiry> => {
   const newInquiry: StoredInquiry = {
     ...data,
     id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
     createdAt: new Date().toISOString(),
   };
+
+  try {
+    const inquiryRef = doc(db, 'inquiries', newInquiry.id);
+    await setDoc(inquiryRef, {
+      ...data,
+      createdAt: serverTimestamp(),
+      status: 'pending'
+    });
+  } catch (error) {
+    console.error('Error saving inquiry to Firebase:', error);
+  }
 
   const inquiries = [...readStorage(), newInquiry];
   writeStorage(inquiries);

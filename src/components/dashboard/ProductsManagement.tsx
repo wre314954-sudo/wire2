@@ -10,22 +10,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { productsData, brands, categories, type Product } from '@/lib/products-data';
+import { saveProduct, getAllProducts, deleteProduct } from '@/lib/firebase-services';
 import { toast } from 'sonner';
 import { Package, Plus, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
 
 const PRODUCTS_STORAGE_KEY = 'wire_cable_products';
-
-const getStoredProducts = (): Product[] => {
-  if (typeof window === 'undefined') return productsData;
-  const stored = localStorage.getItem(PRODUCTS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : productsData;
-};
-
-const saveProducts = (products: Product[]): void => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(products));
-  window.dispatchEvent(new Event('products-updated'));
-};
 
 type ProductFormState = {
   name: string;
@@ -200,8 +189,18 @@ export const ProductsManagement = () => {
     loadProducts();
   }, []);
 
-  const loadProducts = () => {
-    setProducts(getStoredProducts());
+  const loadProducts = async () => {
+    try {
+      const firebaseProducts = await getAllProducts();
+      if (firebaseProducts.length > 0) {
+        setProducts(firebaseProducts);
+      } else {
+        setProducts(productsData);
+      }
+    } catch (error) {
+      console.error('Error loading products:', error);
+      setProducts(productsData);
+    }
   };
 
   const resetForm = () => {
@@ -220,33 +219,37 @@ export const ProductsManagement = () => {
     });
   };
 
-  const handleAddProduct = () => {
+  const handleAddProduct = async () => {
     if (!formData.name || !formData.brand || !formData.category || !formData.basePrice) {
       toast.error('Please fill in all required fields');
       return;
     }
 
-    const newProduct: Product = {
-      id: `product_${Date.now()}`,
-      name: formData.name,
-      brand: formData.brand,
-      category: formData.category,
-      color: formData.color.split(',').map(c => c.trim()).filter(Boolean),
-      description: formData.description,
-      specifications: formData.specifications ? JSON.parse(formData.specifications) : {},
-      basePrice: parseFloat(formData.basePrice),
-      unitType: formData.unitType,
-      stockQuantity: parseInt(formData.stockQuantity) || 0,
-      imageUrl: formData.imageUrl || 'https://images.pexels.com/photos/257736/pexels-photo-257736.jpeg',
-      isActive: formData.isActive
-    };
+    try {
+      const newProduct: Product = {
+        id: `product_${Date.now()}`,
+        name: formData.name,
+        brand: formData.brand,
+        category: formData.category,
+        color: formData.color.split(',').map(c => c.trim()).filter(Boolean),
+        description: formData.description,
+        specifications: formData.specifications ? JSON.parse(formData.specifications) : {},
+        basePrice: parseFloat(formData.basePrice),
+        unitType: formData.unitType,
+        stockQuantity: parseInt(formData.stockQuantity) || 0,
+        imageUrl: formData.imageUrl || 'https://images.pexels.com/photos/257736/pexels-photo-257736.jpeg',
+        isActive: formData.isActive
+      };
 
-    const updatedProducts = [...products, newProduct];
-    saveProducts(updatedProducts);
-    setProducts(updatedProducts);
-    setIsAddDialogOpen(false);
-    resetForm();
-    toast.success('Product added successfully');
+      await saveProduct(newProduct);
+      await loadProducts();
+      setIsAddDialogOpen(false);
+      resetForm();
+      toast.success('Product added successfully');
+    } catch (error) {
+      console.error('Error adding product:', error);
+      toast.error('Failed to add product');
+    }
   };
 
   const handleEditProduct = () => {

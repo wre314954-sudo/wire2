@@ -246,14 +246,34 @@ export const categories = [
   'Solar Cables'
 ];
 
+import { getAllProducts } from './firebase-services';
+
 const PRODUCTS_STORAGE_KEY = 'wire_cable_products';
 
-export const getProducts = (): Product[] => {
+export const getProducts = async (): Promise<Product[]> => {
+  try {
+    const firebaseProducts = await getAllProducts();
+    if (firebaseProducts.length > 0) {
+      return firebaseProducts;
+    }
+    return productsData;
+  } catch (error) {
+    console.error('Error fetching products from Firebase:', error);
+    return productsData;
+  }
+};
+
+export const getProductsSync = (): Product[] => {
   if (typeof window === 'undefined') return productsData;
   const stored = localStorage.getItem(PRODUCTS_STORAGE_KEY);
   return stored ? JSON.parse(stored) : productsData;
 };
 
 export const getProductById = (id: string): Product | undefined => {
-  return getProducts().find(p => p.id === id);
+  return getProductsSync().find(p => p.id === id);
+};
+
+export const getProductByIdAsync = async (id: string): Promise<Product | undefined> => {
+  const products = await getProducts();
+  return products.find(p => p.id === id);
 };
