@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Download, ShoppingCart, Package } from 'lucide-react';
-import { getProductById, type Product } from '@/lib/products-data';
+import { getProductByIdAsync, getProductById, type Product } from '@/lib/products-data';
 import { addToCart } from '@/lib/cart-storage';
 import { toast } from 'sonner';
 
@@ -18,10 +18,19 @@ const ProductDetail = () => {
   const [product, setProduct] = useState<Product | undefined>(undefined);
 
   useEffect(() => {
-    if (id) {
-      const foundProduct = getProductById(id);
-      setProduct(foundProduct);
-    }
+    const loadProduct = async () => {
+      if (id) {
+        try {
+          const foundProduct = await getProductByIdAsync(id);
+          setProduct(foundProduct);
+        } catch (error) {
+          console.error('Error loading product:', error);
+          const fallbackProduct = getProductById(id);
+          setProduct(fallbackProduct);
+        }
+      }
+    };
+    loadProduct();
   }, [id]);
 
   const [selectedColor, setSelectedColor] = useState<string>('');

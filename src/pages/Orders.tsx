@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Package, ShoppingBag, Lock } from 'lucide-react';
 import { getOrders, type Order } from '@/lib/order-storage';
-import { getUserOrders, isSupabaseConfigured } from '@/lib/db-services';
 import { format } from 'date-fns';
 import { useUserAuth } from '@/context/UserAuthContext';
 
@@ -24,39 +23,6 @@ const Orders = () => {
           return;
         }
 
-        // Try to fetch from Supabase first if configured
-        if (isSupabaseConfigured) {
-          const dbOrders = await getUserOrders(user.id);
-          if (dbOrders && dbOrders.length > 0) {
-            // Convert database orders to Order type
-            const convertedOrders: Order[] = dbOrders.map((dbOrder: any) => ({
-              id: dbOrder.id,
-              orderNumber: dbOrder.order_number,
-              userId: dbOrder.user_id,
-              customerInfo: {
-                name: dbOrder.customer_name,
-                email: dbOrder.customer_email,
-                phone: dbOrder.customer_phone,
-                address: dbOrder.customer_address,
-                pincode: dbOrder.customer_pincode
-              },
-              items: dbOrder.items || [],
-              subtotal: dbOrder.subtotal,
-              shippingCost: dbOrder.shipping_cost || 0,
-              totalAmount: dbOrder.total_amount,
-              status: dbOrder.status,
-              paymentStatus: dbOrder.payment_status,
-              paymentMethod: dbOrder.payment_method,
-              qrCodeData: dbOrder.qr_code_data,
-              createdAt: dbOrder.created_at,
-              estimatedDelivery: dbOrder.estimated_delivery
-            }));
-            setOrders(convertedOrders);
-            return;
-          }
-        }
-
-        // Fallback to localStorage
         const userOrders = await getOrders(user.id);
         setOrders(userOrders);
       } catch (error) {

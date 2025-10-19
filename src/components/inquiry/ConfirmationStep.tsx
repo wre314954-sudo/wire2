@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { toast } from "sonner";
 import { addInquiryToStorage } from "@/lib/inquiry-storage";
-import { saveInquiry, isSupabaseConfigured } from "@/lib/db-services";
 import { useUserAuth } from "@/context/UserAuthContext";
 
 interface ConfirmationStepProps {
@@ -22,24 +21,8 @@ const ConfirmationStep = ({ data }: ConfirmationStepProps) => {
     setIsSubmitting(true);
 
     try {
-      addInquiryToStorage(data);
+      await addInquiryToStorage(data);
       console.log("Submitting inquiry:", data);
-
-      // Save to Supabase if configured and user is authenticated
-      if (isSupabaseConfigured && user) {
-        await saveInquiry({
-          userId: user.id,
-          userType: data.userType,
-          location: data.address,
-          productName: data.brand,
-          productSpecification: data.color,
-          quantity: data.quantity,
-          contactName: data.name,
-          contactEmail: data.email,
-          contactPhone: data.phone,
-          additionalRequirements: `Unit: ${data.unit}`
-        });
-      }
 
       toast.success("Inquiry submitted successfully! We'll contact you soon.");
       setTimeout(() => navigate("/"), 2000);

@@ -62,18 +62,57 @@ const isValidPhone = (value: string) => {
 export const UserAuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [pending, setPending] = useState<PendingVerification | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(USER_AUTH_STORAGE_KEY);
-      if (!stored) return;
-      const parsed: UserProfile = JSON.parse(stored);
-      if (parsed?.contact) {
-        setUser(parsed);
+    const initializeAuth = async () => {
+      try {
+        const stored = localStorage.getItem(USER_AUTH_STORAGE_KEY);
+        if (stored) {
+          const parsed: UserProfile = JSON.parse(stored);
+          if (parsed?.contact) {
+            setUser(parsed);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to restore user session", error);
+      } finally {
+        setIsInitialized(true);
       }
-    } catch (error) {
-      console.error("Failed to restore user session", error);
-    }
+    };
+
+    initializeAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        return;
+      }
+
+      try {
+        const stored = localStorage.getItem(USER_AUTH_STORAGE_KEY);
+        if (stored) {
+          const parsed: UserProfile = JSON.parse(stored);
+          if (parsed?.id === firebaseUser.uid) {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+              const userData = userSnap.data();
+              const updatedProfile: UserProfile = {
+                id: firebaseUser.uid,
+                contact: userData.contact || parsed.contact,
+                lastLoginAt: userData.lastLoginAt?.toDate?.()?.toISOString?.() || parsed.lastLoginAt,
+              };
+              setUser(updatedProfile);
+              localStorage.setItem(USER_AUTH_STORAGE_KEY, JSON.stringify(updatedProfile));
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error syncing Firebase auth state:', error);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const requestOtp = useCallback(async (contact: string) => {
@@ -184,6 +223,17 @@ export const UserAuthProvider = ({ children }: { children: ReactNode }) => {
     }),
     [logout, requestOtp, user, verifyOtp],
   );
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-accent/10 to-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto"></div>
+          <p className="text-muted-foreground">Initializing...</p>
+        </div>
+      </div>
+    );
+  }
 
   return <UserAuthContext.Provider value={value}>{children}</UserAuthContext.Provider>;
 };

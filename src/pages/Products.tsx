@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, Search, ShoppingCart } from 'lucide-react';
-import { getProducts, brands, categories, type Product } from '@/lib/products-data';
+import { getProducts, getProductsSync, brands, categories, type Product } from '@/lib/products-data';
 import { getCartItemCount } from '@/lib/cart-storage';
 
 const Products = () => {
@@ -28,8 +28,14 @@ const Products = () => {
     return () => window.removeEventListener('products-updated', handleProductsUpdate);
   }, []);
 
-  const loadProducts = () => {
-    setProducts(getProducts());
+  const loadProducts = async () => {
+    try {
+      const loadedProducts = await getProducts();
+      setProducts(loadedProducts);
+    } catch (error) {
+      console.error('Error loading products:', error);
+      setProducts(getProductsSync());
+    }
   };
 
   const filteredProducts = useMemo(() => {

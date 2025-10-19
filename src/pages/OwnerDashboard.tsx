@@ -16,7 +16,6 @@ import {
   removeInquiryFromStorage,
   type StoredInquiry,
 } from "@/lib/inquiry-storage";
-import { getAllInquiries, isSupabaseConfigured } from "@/lib/db-services";
 import { useOwnerAuth } from "@/context/OwnerAuthContext";
 import { OrdersManagement } from "@/components/dashboard/OrdersManagement";
 import { ProductsManagement } from "@/components/dashboard/ProductsManagement";
@@ -24,39 +23,14 @@ import { ProductsManagement } from "@/components/dashboard/ProductsManagement";
 const OwnerDashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useOwnerAuth();
-  const [inquiries, setInquiries] = useState<StoredInquiry[]>(() => getStoredInquiries());
+  const [inquiries, setInquiries] = useState<StoredInquiry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const loadInquiries = async () => {
     setIsLoading(true);
     try {
-      // Try to load from Supabase first if configured
-      if (isSupabaseConfigured) {
-        const dbInquiries = await getAllInquiries();
-        if (dbInquiries && dbInquiries.length > 0) {
-          // Convert database inquiries to StoredInquiry type
-          const convertedInquiries: StoredInquiry[] = dbInquiries.map((inquiry: any) => ({
-            id: inquiry.id,
-            userType: inquiry.user_type,
-            phone: inquiry.contact_phone,
-            verified: true,
-            name: inquiry.contact_name,
-            email: inquiry.contact_email,
-            address: inquiry.location,
-            pincode: '000000', // placeholder
-            brand: inquiry.product_name || 'Not specified',
-            color: inquiry.product_specification || 'Not specified',
-            quantity: inquiry.quantity || 'Not specified',
-            unit: 'units',
-            createdAt: inquiry.created_at
-          }));
-          setInquiries(convertedInquiries);
-          return;
-        }
-      }
-
-      // Fallback to localStorage
-      setInquiries(getStoredInquiries());
+      const firebaseInquiries = await getStoredInquiries();
+      setInquiries(firebaseInquiries);
     } catch (error) {
       console.error('Error loading inquiries:', error);
       toast.error('Failed to load inquiries');
